@@ -26,11 +26,11 @@ module Sablon
           out.put_next_entry(entry_name)
           content = entry.get_input_stream.read
           if entry_name == 'word/document.xml'
-            out.write(process(Processor::Document, content, context, properties))
+            out.write(process(Processor::Document, content, context, properties).force_encoding('utf-8'))
           elsif entry_name =~ /word\/header\d*\.xml/ || entry_name =~ /word\/footer\d*\.xml/
-            out.write(process(Processor::Document, content, context))
+            out.write(process(Processor::Document, content, context).force_encoding('utf-8'))
           elsif entry_name == 'word/numbering.xml'
-            out.write(process(Processor::Numbering, content))
+            out.write(process(Processor::Numbering, content).force_encoding('utf-8'))
           else
             out.write(content)
           end
