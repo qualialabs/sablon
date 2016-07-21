@@ -6,9 +6,11 @@ module Sablon
 
     # Same as +render_to_string+ but writes the processed template to +output_path+.
     def render_to_file(output_path, context, properties = {})
+      $active_fields = []
       File.open(output_path, 'wb') do |f|
         f.write render_to_string(context, properties)
       end
+      $active_fields.uniq
     end
 
     # Process the template. The +context+ hash will be available in the template.

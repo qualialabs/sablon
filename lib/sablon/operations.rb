@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+$field_alias = {}
+
 module Sablon
   module Statement
     class Insertion < Struct.new(:expr, :field)
@@ -17,11 +19,18 @@ module Sablon
         value = value.to_ary if value.respond_to?(:to_ary)
         raise ContextError, "The expression #{list_expr.inspect} should evaluate to an enumerable but was: #{value.inspect}" unless value.is_a?(Enumerable)
 
-        content = value.flat_map do |item|
-          iteration_context = context.merge(iterator_name => item)
-          block.process(iteration_context)
+        old_alias = $field_alias[iterator_name]
+        $field_alias[iterator_name] = list_expr.name
+        begin
+          content = value.flat_map do |item|
+            iteration_context = context.merge(iterator_name => item)
+            block.process(iteration_context)
+          end
+          block.replace(content.reverse)
+        ensure
+          $field_alias[iterator_name] = old_alias
         end
-        block.replace(content.reverse)
+
       end
     end
 
@@ -66,6 +75,7 @@ module Sablon
     class LookupOrMethodCall < Struct.new(:receiver_expr, :expression)
       def evaluate(context)
         if receiver = receiver_expr.evaluate(context)
+          $active_fields << "#{$field_alias[receiver_expr.name] or receiver_expr.name}.#{expression}"
           expression.split(".").inject(receiver) do |local, m|
             case local
             when Hash
