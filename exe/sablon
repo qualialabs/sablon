@@ -3,6 +3,7 @@
 require 'sablon'
 require 'json'
 
+
 if ARGV.size < 1
   puts <<-HELP
 cat <context path> | sablon <template path> [<output path>]
