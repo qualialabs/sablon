@@ -5,7 +5,10 @@ module Sablon
   module Statement
     class Insertion < Struct.new(:expr, :field)
       def evaluate(context)
-        $active_fields << expr.name
+        begin
+          $active_fields << expr.name
+        rescue
+        end
         if content = expr.evaluate(context)
           field.replace(Sablon::Content.wrap(expr.evaluate(context)))
         else
