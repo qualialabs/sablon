@@ -45,7 +45,6 @@ module Sablon
                 node.remove
               end
             end
-            # (@nodes - [pattern_node]).each(&:remove)
           else
             replace_field_display(pattern_node, content)
             (@nodes - [pattern_node]).each(&:remove)
@@ -70,6 +69,7 @@ module Sablon
 
         private
         def pattern_node
+          # If the next element doesn't a fldChar, it's a hyperlink, and we need to traverse past the begin, hyperlink, and seprator to get to the pattern node
           if separate_node.next_element.search('.//w:fldChar').length != 0
             separate_node.next_element.next_element.next_element.next_element
           else
