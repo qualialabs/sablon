@@ -24,7 +24,13 @@ module Sablon
         raise ContextError, "The expression #{list_expr.inspect} should evaluate to an enumerable but was: #{value.inspect}" unless value.is_a?(Enumerable)
 
         old_alias = $field_alias[iterator_name]
-        $field_alias[iterator_name] = list_expr.name
+        $field_alias[iterator_name] = ""
+        if list_expr.respond_to? "name"
+          $field_alias[iterator_name] = list_expr.name
+        elsif list_expr.respond_to? "expression"
+          $field_alias[iterator_name] = list_expr.expression
+        end
+
         begin
           content = value.flat_map do |item|
             iteration_context = context.merge(iterator_name => item)
