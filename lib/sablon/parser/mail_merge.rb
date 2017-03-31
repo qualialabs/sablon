@@ -2,7 +2,7 @@ module Sablon
   module Parser
     class MailMerge
       class MergeField
-        KEY_PATTERN = /^\s*MERGEFIELD\s+([^ ]+)\s+\\\*\s+MERGEFORMAT\s*$/
+        KEY_PATTERN = /\s*MERGEFIELD\s+([^ ]+)\s+\\\*\s+MERGEFORMAT\s*/
 
         def valid?
           expression
@@ -36,8 +36,19 @@ module Sablon
         end
 
         def replace(content)
-          replace_field_display(pattern_node, content)
-          (@nodes - [pattern_node]).each(&:remove)
+          # Having more than 5 nodes means that it's a hyperlinked node
+          # We delete the first three nodes, which contain the start, link and separator, and the last node, which is the end
+          if @nodes.length > 5
+            replace_field_display(pattern_node, content)
+            @nodes.each_with_index do |node, index|
+              if index < 3 || index == 8
+                node.remove
+              end
+            end
+          else
+            replace_field_display(pattern_node, content)
+            (@nodes - [pattern_node]).each(&:remove)
+          end
         end
 
         def remove
@@ -58,7 +69,12 @@ module Sablon
 
         private
         def pattern_node
-          separate_node.next_element
+          # If the next element doesn't a fldChar, it's a hyperlink, and we need to traverse past the begin, hyperlink, and seprator to get to the pattern node
+          if separate_node.next_element.search('.//w:fldChar').length != 0
+            separate_node.next_element.next_element.next_element.next_element
+          else
+            separate_node.next_element
+          end
         end
 
         def separate_node
@@ -106,9 +122,15 @@ module Sablon
 
       private
       def build_complex_field(node)
+        begins_left = 0
         possible_field_node = node.parent
         field_nodes = [possible_field_node]
-        while possible_field_node && possible_field_node.search(".//w:fldChar[@w:fldCharType='end']").empty?
+        while possible_field_node && (possible_field_node.search(".//w:fldChar[@w:fldCharType='end']").empty? || begins_left > 1)
+          if !possible_field_node.search(".//w:fldChar[@w:fldCharType='begin']").empty?
+            begins_left += 1
+          elsif !possible_field_node.search(".//w:fldChar[@w:fldCharType='end']").empty?
+            begins_left -= 1
+          end
           possible_field_node = possible_field_node.next_element
           field_nodes << possible_field_node
         end
