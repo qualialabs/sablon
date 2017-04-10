@@ -1,5 +1,5 @@
-require "sablon/html/ast"
-require "sablon/html/visitor"
+require_relative "ast"
+require_relative "visitor"
 
 module Sablon
   class HTMLConverter
