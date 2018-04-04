@@ -8,7 +8,7 @@ Gem::Specification.new do |spec|
   spec.version       = Sablon::VERSION
   spec.authors       = ["Yves Senn"]
   spec.email         = ["yves.senn@gmail.com"]
-  spec.summary       = %q{docx tempalte processor}
+  spec.summary       = %q{docx template processor}
   spec.description   = %q{Sablon is a document template processor. At this time it works only with docx and MailMerge fields.}
   spec.homepage      = "http://github.com/senny/sablon"
   spec.license       = "MIT"
@@ -20,11 +20,10 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_runtime_dependency 'nokogiri', ">= 1.6.0"
-  spec.add_runtime_dependency 'rubyzip', ">= 1.1"
-  spec.add_runtime_dependency 'redcarpet', ">= 3.2"
+  spec.add_runtime_dependency 'rubyzip', ">= 1.1.1"
 
   spec.add_development_dependency "bundler", ">= 1.6"
-  spec.add_development_dependency "rake", "~> 10.0"
+  spec.add_development_dependency "rake", "~> 12.0"
   spec.add_development_dependency "minitest", "~> 5.4"
   spec.add_development_dependency "xml-simple"
 end

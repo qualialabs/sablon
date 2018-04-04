@@ -3,7 +3,6 @@ require "test_helper"
 require "support/xml_snippets"
 
 class SablonTest < Sablon::TestCase
-  include Sablon::Test::Assertions
   include XMLSnippets
 
   def setup
@@ -24,7 +23,7 @@ class SablonTest < Sablon::TestCase
     referee = Struct.new(:name, :company, :position, :phone)
 
     context = {
-      current_time: Time.now.strftime("%d.%m.%Y %H:%M"),
+      current_time: '15.04.2015 14:57',
       metadata: { generator: "Sablon" },
       title: "Resume",
       person: OpenStruct.new("first_name" => "Ronald", "last_name" => "Anderson",
@@ -65,7 +64,7 @@ class SablonTest < Sablon::TestCase
                   language.new("German", "fluent"),
                   language.new("French", "basics"),
                  ],
-      about_me: Sablon.content(:markdown, "I am fond of writing *short stories* and *poems* in my spare time,  \nand have won several literary contests in pursuit of my **passion**."),
+      about_me: Sablon.content(:html, "I am fond of writing <i>short stories</i> and <i>poems</i> in my spare time,  <br />and have won several literary contests in pursuit of my <b>passion</b>."),
       activities: ["Writing", "Photography", "Traveling"],
       referees: [
                  referee.new("Mary P. Larsen", "Strongbod",
@@ -85,8 +84,7 @@ class SablonTest < Sablon::TestCase
   end
 end
 
-class SablonTest < Sablon::TestCase
-  include Sablon::Test::Assertions
+class SablonConditionalsTest < Sablon::TestCase
   include XMLSnippets
 
   def setup
@@ -99,8 +97,92 @@ class SablonTest < Sablon::TestCase
 
   def test_generate_document_from_template
     template = Sablon.template @template_path
-    context = {paragraph: true, inline: true, table: true, table_inline: true, content: "Some Content"}
+    context = {
+      paragraph: true,
+      inline: true,
+      table: true,
+      table_inline: true,
+      object: OpenStruct.new(true_method: true, false_method: false),
+      success_content: '✓',
+      fail_content: '✗',
+      content: 'Some Content'
+    }
+    #
     template.render_to_file @output_path, context
     assert_docx_equal @sample_path, @output_path
+  end
+end
+
+class SablonLoopsTest < Sablon::TestCase
+  include XMLSnippets
+
+  def setup
+    super
+    @base_path = Pathname.new(File.expand_path("../", __FILE__))
+    @template_path = @base_path + "fixtures/loops_template.docx"
+    @output_path = @base_path + "sandbox/loops.docx"
+    @sample_path = @base_path + "fixtures/loops_sample.docx"
+  end
+
+  def test_generate_document_from_template
+    template = Sablon.template @template_path
+    context = {
+      fruits: %w[Apple Blueberry Cranberry Date].map { |i| { name: i } },
+      cars: %w[Silverado Serria Ram Tundra].map { |i| { name: i } }
+    }
+
+    template.render_to_file @output_path, context
+    assert_docx_equal @sample_path, @output_path
+  end
+end
+
+class SablonImagesTest < Sablon::TestCase
+  def setup
+    super
+    @base_path = Pathname.new(File.expand_path("../", __FILE__))
+    @template_path = @base_path + "fixtures/images_template.docx"
+    @output_path = @base_path + "sandbox/images.docx"
+    @sample_path = @base_path + "fixtures/images_sample.docx"
+    @image_fixtures = @base_path + "fixtures/images"
+  end
+
+  def test_generate_document_from_template
+    template = Sablon.template @template_path
+    #
+    # setup two image contents to allow quick reuse
+    r2d2 = Sablon.content(:image, @image_fixtures.join('r2d2.jpg').to_s)
+    c3po = Sablon.content(:image, @image_fixtures.join('c3po.jpg'))
+    darth = Sablon.content(:image, @image_fixtures.join('darth_vader.jpg'))
+    #
+    im_data = StringIO.new(IO.binread(@image_fixtures.join('clone.jpg')))
+    trooper = Sablon.content(:image, im_data, filename: 'clone.jpg')
+    #
+    # with the following context setup all trooper should be reused and
+    # only a single file added to media. R2D2 should get duplicated in the
+    # media folder because it is used in two different context keys as
+    # separate instances. Darth Vader should not be duplicated because
+    # the key "unused_darth" doesn't appear in the template
+    context = {
+      items: [
+        { title: 'C-3PO', image: c3po },
+        { title: 'R2-D2', image: r2d2 },
+        { title: 'Darth Vader', 'image:image' => @image_fixtures.join('darth_vader.jpg') },
+        { title: 'Storm Trooper', image: trooper }
+      ],
+      'image:r2d2' => @image_fixtures.join('r2d2.jpg'),
+      'unused_darth' => darth,
+      trooper: trooper
+    }
+
+    template.render_to_file @output_path, context
+    assert_docx_equal @sample_path, @output_path
+
+    # try to render a document with an image that has no extension
+    trooper = Sablon.content(:image, im_data, filename: 'clone')
+    context = { items: [], trooper: trooper }
+    e = assert_raises ArgumentError do
+      template.render_to_file @output_path, context
+    end
+    assert_equal "Filename: 'clone' has no discernable extension", e.message
   end
 end

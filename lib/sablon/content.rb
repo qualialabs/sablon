@@ -1,3 +1,5 @@
+require 'open-uri'
+
 module Sablon
   module Content
     class << self
@@ -40,6 +42,7 @@ module Sablon
       end
     end
 
+    # Handles simple text replacement of fields in the template
     class String < Struct.new(:string)
       include Sablon::Content
       def self.id; :string end
@@ -51,7 +54,7 @@ module Sablon
         super value.to_s
       end
 
-      def append_to(paragraph, display_node)
+      def append_to(paragraph, display_node, env)
         string.scan(/[^\n]+|\n/).reverse.each do |part|
           if part == "\n"
             display_node.add_next_sibling Nokogiri::XML::Node.new "w:br", display_node.document
@@ -64,55 +67,167 @@ module Sablon
       end
     end
 
+    # handles direct addition of WordML to the document template
     class WordML < Struct.new(:xml)
       include Sablon::Content
       def self.id; :word_ml end
       def self.wraps?(value) false end
 
-      def append_to(paragraph, display_node)
-        Nokogiri::XML.fragment(xml).children.reverse.each do |child|
-          paragraph.add_next_sibling child
+      def initialize(value)
+        super Nokogiri::XML.fragment(value)
+      end
+
+      def append_to(paragraph, display_node, env)
+        # if all nodes are inline then add them to the existing paragraph
+        # otherwise replace the paragraph with the new content.
+        if all_inline?
+          pr_tag = display_node.parent.at_xpath('./w:rPr')
+          add_siblings_to(display_node.parent, pr_tag)
+          display_node.parent.remove
+        else
+          add_siblings_to(paragraph)
+          paragraph.remove
         end
-        paragraph.remove
+      end
+
+      # This allows proper equality checks with other WordML content objects.
+      # Due to the fact the `xml` attribute is a live Nokogiri object
+      # the default `==` comparison returns false unless it is the exact
+      # same object being compared. This method instead checks if the XML
+      # being added to the document is the same when the `other` object is
+      # an instance of the WordML content class.
+      def ==(other)
+        if other.class == self.class
+          xml.to_s == other.xml.to_s
+        else
+          super
+        end
+      end
+
+      private
+
+      # Returns `true` if all of the xml nodes to be inserted are
+      def all_inline?
+        (xml.children.map(&:node_name) - inline_tags).empty?
+      end
+
+      # Array of tags allowed to be a child of the w:p XML tag as defined
+      # by the Open XML specification
+      def inline_tags
+        %w[w:bdo w:bookmarkEnd w:bookmarkStart w:commentRangeEnd
+           w:commentRangeStart w:customXml
+           w:customXmlDelRangeEnd w:customXmlDelRangeStart
+           w:customXmlInsRangeEnd w:customXmlInsRangeStart
+           w:customXmlMoveFromRangeEnd w:customXmlMoveFromRangeStart
+           w:customXmlMoveToRangeEnd w:customXmlMoveToRangeStart
+           w:del w:dir w:fldSimple w:hyperlink w:ins w:moveFrom
+           w:moveFromRangeEnd w:moveFromRangeStart w:moveTo
+           w:moveToRangeEnd w:moveToRangeStart m:oMath m:oMathPara
+           w:pPr w:proofErr w:r w:sdt w:smartTag]
+      end
+
+      # Adds the XML to be inserted in the document as siblings to the
+      # node passed in. Run properties are merged here because of namespace
+      # issues when working with a document fragment
+      def add_siblings_to(node, rpr_tag = nil)
+        xml.children.reverse.each do |child|
+          node.add_next_sibling child
+          # merge properties
+          next unless rpr_tag
+          merge_rpr_tags(child, rpr_tag.children)
+        end
+      end
+
+      # Merges the provided properties into the run proprties of the
+      # node passed in. Properties are only added if they are not already
+      # defined on the node itself.
+      def merge_rpr_tags(node, props)
+        # first assert that all child runs (w:r tags) have a w:rPr tag
+        node.xpath('.//w:r').each do |child|
+          child.prepend_child '<w:rPr></w:rPr>' unless child.at_xpath('./w:rPr')
+        end
+        #
+        # merge run props, only adding them if they aren't already defined
+        node.xpath('.//w:rPr').each do |pr_tag|
+          existing = pr_tag.children.map(&:node_name)
+          props.map { |pr| pr_tag << pr unless existing.include? pr.node_name }
+        end
       end
     end
 
-    class Markdown < Struct.new(:word_ml)
-      include Sablon::Content
-      def self.id; :markdown end
-      def self.wraps?(value) false end
-
-      def initialize(markdown)
-        warn "[DEPRECATION] `Sablon::Content::Markdown` is deprecated.  Please use `Sablon::Content::HTML` instead."
-        redcarpet = ::Redcarpet::Markdown.new(::Redcarpet::Render::HTML.new)
-        word_ml = Sablon.content(:html, redcarpet.render(markdown))
-        super word_ml
-      end
-
-      def append_to(*args)
-        word_ml.append_to(*args)
-      end
-    end
-
-    class HTML < Struct.new(:word_ml)
+    # Handles conversion of HTML -> WordML and addition into template
+    class HTML < Struct.new(:html_content)
       include Sablon::Content
       def self.id; :html end
       def self.wraps?(value) false end
 
-      def initialize(html)
-        converter = HTMLConverter.new
-        word_ml = Sablon.content(:word_ml, converter.process(html))
-        super word_ml
+      def initialize(value)
+        super value
       end
 
-      def append_to(*args)
-        word_ml.append_to(*args)
+      def append_to(paragraph, display_node, env)
+        converter = HTMLConverter.new
+        word_ml = WordML.new(converter.process(html_content, env))
+        word_ml.append_to(paragraph, display_node, env)
+      end
+    end
+
+    # Handles reading image data and inserting it into the document
+    class Image < Struct.new(:name, :data, :local_rid)
+      attr_reader :rid_by_file
+
+      def self.id; :image end
+      def self.wraps?(value) false end
+
+      def inspect
+        "#<Image #{name}:#{@rid_by_file}>"
+      end
+
+      def initialize(source, attributes = {})
+        attributes = Hash[attributes.map { |k, v| [k.to_s, v] }]
+        # If the source object is readable, use it as such otherwise open
+        # and read the content
+        if source.respond_to?(:read)
+          name, img_data = process_readable(source, attributes)
+        else
+          name = File.basename(source)
+          img_data = IO.binread(source)
+        end
+        #
+        super name, img_data
+        @attributes = attributes
+        # rId's are separate for each XML file but I want to be able
+        # to reuse the actual image file itself.
+        @rid_by_file = {}
+      end
+
+      def append_to(paragraph, display_node, env) end
+
+      private
+
+      # Reads the data and attempts to find a filename from either the
+      # attributes hash or a #filename method on the source object itself.
+      # A filename is required inorder for MS Word to know the content type.
+      def process_readable(source, attributes)
+        if attributes['filename']
+          name = attributes['filename']
+        elsif source.respond_to?(:filename)
+          name = source.filename
+        else
+          begin
+            name = File.basename(source)
+          rescue TypeError
+            raise ArgumentError, "Error: Could not determine filename from source, try: `Sablon.content(readable_obj, filename: '...')`"
+          end
+        end
+        #
+        [File.basename(name), source.read]
       end
     end
 
     register Sablon::Content::String
     register Sablon::Content::WordML
-    register Sablon::Content::Markdown
     register Sablon::Content::HTML
+    register Sablon::Content::Image
   end
 end
